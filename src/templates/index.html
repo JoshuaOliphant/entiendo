@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Entiendo - Document Understanding Assistant</title>
+    
+    <!-- Core libraries -->
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script defer src="https://unpkg.com/@imacrayon/alpine-ajax@0.3.0"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body x-data="app()" class="min-h-screen bg-gray-50">
+    <script>
+        function app() {
+            return {
+                state: {
+                    currentDoc: null,
+                    segments: [],
+                    explanations: [],
+                    loading: false,
+                    error: null,
+                    activeSegment: null
+                },
+
+                async uploadFile(file) {
+                    if (!file) return;
+                    
+                    this.state.loading = true;
+                    this.state.error = null;
+                    
+                    try {
+                        const formData = new FormData();
+                        formData.append('file', file);
+                        
+                        const response = await fetch('/upload', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        
+                        if (!response.ok) {
+                            const error = await response.json();
+                            throw new Error(error.detail || 'Error uploading document');
+                        }
+                        
+                        const result = await response.json();
+                        this.state.currentDoc = result.metadata;
+                        this.state.segments = result.segments;
+                        this.state.explanations = result.explanations || [];
+                    } catch (err) {
+                        this.state.error = `Error uploading document: ${err.message}`;
+                        console.error('Upload error:', err);
+                    } finally {
+                        this.state.loading = false;
+                    }
+                }
+            }
+        }
+    </script>
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-gray-900">Entiendo</h1>
+            <p class="mt-2 text-gray-600">Upload a document to get simple explanations with citations</p>
+        </header>
+
+        <!-- Upload Section -->
+        <div x-show="!state.currentDoc" class="mb-8">
+            <form class="max-w-xl" @submit.prevent>
+                <div class="flex items-center justify-center w-full">
+                    <label class="flex flex-col items-center justify-center w-full h-64 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
+                        <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                            <template x-if="!state.loading">
+                                <div class="text-center">
+                                    <svg class="w-8 h-8 mb-4 text-gray-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                    </svg>
+                                    <p class="mb-2 text-sm text-gray-500"><span class="font-semibold">Click to upload</span> or drag and drop</p>
+                                    <p class="text-xs text-gray-500">PDF or TXT files</p>
+                                </div>
+                            </template>
+                            <template x-if="state.loading">
+                                <div class="text-center">
+                                    <svg class="animate-spin h-8 w-8 text-gray-500 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    <p class="text-sm text-gray-500">Uploading...</p>
+                                </div>
+                            </template>
+                        </div>
+                        <input type="file" 
+                               name="file" 
+                               class="hidden" 
+                               accept=".pdf,.txt" 
+                               required 
+                               @change="uploadFile($event.target.files[0])" />
+                    </label>
+                </div>
+            </form>
+        </div>
+
+        <!-- Document Display -->
+        <div x-show="state.currentDoc" class="grid grid-cols-2 gap-8">
+            <!-- Original Document -->
+            <div>
+                <h2 class="text-xl font-semibold mb-4">Original Document</h2>
+                <div class="space-y-4">
+                    <template x-for="(segment, index) in state.segments" :key="segment.start_index">
+                        <div class="p-4 bg-white rounded shadow"
+                             :class="{'bg-blue-50': segment === state.activeSegment}">
+                            <p class="whitespace-pre-wrap" x-text="segment.text"></p>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Simple Explanations -->
+            <div>
+                <h2 class="text-xl font-semibold mb-4">Simple Explanation</h2>
+                <div class="space-y-4">
+                    <template x-for="(segment, index) in state.segments" :key="segment.start_index">
+                        <div class="p-4 bg-white rounded shadow"
+                             :class="{
+                                'bg-blue-50': segment === state.activeSegment,
+                                'border-l-4 border-green-400': state.explanations[index]?.text === segment.text
+                             }">
+                            <p class="whitespace-pre-wrap" 
+                               x-text="state.explanations[index] ? state.explanations[index].text : 'Generating explanation...'">
+                            </p>
+                            <p x-show="state.explanations[index]?.text === segment.text" 
+                               class="mt-2 text-sm text-green-600">
+                               This segment was already clear and simple - no explanation needed
+                            </p>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
